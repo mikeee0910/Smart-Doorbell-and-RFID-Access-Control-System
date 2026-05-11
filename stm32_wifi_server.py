@@ -27,8 +27,10 @@ def trigger_line_doorbell():
 
 # 一次只允許一筆指令 in-flight，避免狀態混亂
 command_lock = threading.Lock()
-pending_command = None         # 等 STM32 來拉的指令
-inflight_result_queue = None   # 等 STM32 ack 完寫回結果
+pending_command_queue = queue.Queue()  # STM32 long-poll 從這裡拿
+inflight_result_queue = None           # 等 STM32 ack 完寫回結果
+
+POLL_HOLD_SECONDS = 25  # long polling server 最長 hang 多久（秒）
 
 
 def now_text():
@@ -204,13 +206,10 @@ def stm32_rfid():
 
 @app.route("/stm32/poll", methods=["GET", "POST"])
 def stm32_poll():
-    global pending_command
-
-    with command_lock:
-        cmd = pending_command
-        pending_command = None
-
-    if cmd is None:
+    """Long polling: 沒指令時 hang 住到有指令或 timeout"""
+    try:
+        cmd = pending_command_queue.get(timeout=POLL_HOLD_SECONDS)
+    except queue.Empty:
         return respond({"command": "NONE"})
 
     print("STM32 poll → 送出指令:", cmd)
@@ -242,7 +241,7 @@ def stm32_ack():
 @app.route("/api/command", methods=["POST"])
 def api_command():
     """LINE bot (app.py) 呼叫這支，把 UNLOCK/LOCK/STATUS 丟給 STM32"""
-    global pending_command, inflight_result_queue
+    global inflight_result_queue
 
     data = read_payload()
     command = str(data.get("command", "")).strip().upper()
@@ -254,16 +253,15 @@ def api_command():
     rq = queue.Queue()
 
     with command_lock:
-        if pending_command is not None or inflight_result_queue is not None:
+        if inflight_result_queue is not None:
             return respond({"ok": False, "error": "busy", "result": "BUSY"}, 503)
-        pending_command = command
         inflight_result_queue = rq
+        pending_command_queue.put(command)
 
     try:
         result = rq.get(timeout=timeout_sec)
     except queue.Empty:
         with command_lock:
-            pending_command = None
             inflight_result_queue = None
         return respond({"ok": False, "error": "timeout", "result": "NO_RESPONSE"})
 
