@@ -1,0 +1,4 @@
+../Core/Src/wifi_http.c:14:5:WiFi_HTTP_Init	48	static
+../Core/Src/wifi_http.c:45:12:http_post	80	static
+../Core/Src/wifi_http.c:90:5:WiFi_HTTP_PostRFID	368	static
+../Core/Src/wifi_http.c:114:5:WiFi_HTTP_PostDoorbell	272	static

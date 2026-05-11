@@ -25,6 +25,8 @@
 #include "rc522.h"
 #include "button.h"
 #include "servo.h"
+#include "wifi_http.h"
+#include "es_wifi_io.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -130,7 +132,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  printf("RC522 test start\r\n");
+  printf("=== Smart Doorbell + RFID (WiFi) ===\r\n");
 
   HAL_Delay(100);
 
@@ -139,28 +141,15 @@ int main(void)
   Servo_Init();
 
   uint8_t version = RC522_ReadReg(VersionReg);
-  uint8_t txControl = RC522_ReadReg(TxControlReg);
-
   printf("RC522 VersionReg = 0x%02X\r\n", version);
-  printf("TxControlReg = 0x%02X\r\n", txControl);
-
   if (version != 0x00 && version != 0xFF)
-  {
-      printf("RC522 SPI OK, module responded\r\n");
-  }
+      printf("RC522 SPI OK\r\n");
   else
-  {
-      printf("RC522 SPI failed\r\n");
-  }
+      printf("RC522 SPI FAILED\r\n");
 
-  if ((txControl & 0x03) == 0x03)
-  {
-      printf("RC522 antenna ON\r\n");
-  }
-  else
-  {
-      printf("RC522 antenna may be OFF\r\n");
-  }
+  int wifi_ok = (WiFi_HTTP_Init() == 0) ? 1 : 0;
+  if (!wifi_ok)
+      printf("WiFi init failed, running offline\r\n");
 
   uint8_t status;
   uint8_t tagType[2];
@@ -183,9 +172,18 @@ int main(void)
 
 		if (status == MI_OK)
 		{
-			printf("Card detected\r\n");
 			printf("UID: %02X %02X %02X %02X\r\n",
 				   uid[0], uid[1], uid[2], uid[3]);
+
+			if (wifi_ok) {
+				uint8_t unlock = 0;
+				if (WiFi_HTTP_PostRFID(uid, &unlock) == 0 && unlock) {
+					printf("Server: UNLOCK\r\n");
+					Servo_UnlockSequence();
+				} else {
+					printf("Server: DENY\r\n");
+				}
+			}
 
 			HAL_Delay(1000);
 		}
@@ -193,7 +191,9 @@ int main(void)
 
 	if (Button_WasPressed())
 	{
-	    printf("PC13 button pressed\r\n");
+	    printf("Doorbell pressed\r\n");
+	    if (wifi_ok)
+	        WiFi_HTTP_PostDoorbell();
 	    Servo_UnlockSequence();
 	}
 
@@ -792,6 +792,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+    if (GPIO_Pin == GPIO_PIN_1) {
+        SPI_WIFI_ISR();
+    }
     Button_EXTI_Callback(GPIO_Pin);
 }
 /* USER CODE END 4 */

@@ -1,0 +1,127 @@
+#include "wifi_http.h"
+#include "wifi.h"
+#include <stdio.h>
+#include <string.h>
+
+#define SOCKET_ID          0
+#define SEND_TIMEOUT       5000
+#define RECV_TIMEOUT       5000
+
+static uint8_t ServerIP[4] = {SERVER_IP_0, SERVER_IP_1, SERVER_IP_2, SERVER_IP_3};
+static uint8_t TxBuf[512];
+static uint8_t RxBuf[512];
+
+int WiFi_HTTP_Init(void)
+{
+    uint8_t mac[6];
+    uint8_t ip[4];
+
+    printf("WiFi: initializing module...\r\n");
+    if (WIFI_Init() != WIFI_STATUS_OK) {
+        printf("WiFi: init FAILED\r\n");
+        return -1;
+    }
+    printf("WiFi: module ready\r\n");
+
+    if (WIFI_GetMAC_Address(mac, sizeof(mac)) == WIFI_STATUS_OK) {
+        printf("WiFi: MAC %02X:%02X:%02X:%02X:%02X:%02X\r\n",
+               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+
+    printf("WiFi: connecting to \"%s\"...\r\n", WIFI_SSID);
+    if (WIFI_Connect(WIFI_SSID, WIFI_PASSWORD, WIFI_ECN_WPA2_PSK) != WIFI_STATUS_OK) {
+        printf("WiFi: connect FAILED\r\n");
+        return -2;
+    }
+
+    if (WIFI_GetIP_Address(ip, sizeof(ip)) == WIFI_STATUS_OK) {
+        printf("WiFi: IP %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+    }
+
+    printf("WiFi: connected OK\r\n");
+    return 0;
+}
+
+static int http_post(const char *path, const char *body, uint8_t *resp, uint16_t resp_size)
+{
+    uint16_t sent, received;
+    int body_len = body ? (int)strlen(body) : 0;
+    int len;
+
+    if (WIFI_OpenClientConnection(SOCKET_ID, WIFI_TCP_PROTOCOL, "TCP",
+                                   ServerIP, SERVER_PORT, 0) != WIFI_STATUS_OK) {
+        printf("HTTP: TCP connect failed\r\n");
+        return -1;
+    }
+
+    len = snprintf((char *)TxBuf, sizeof(TxBuf),
+                   "POST %s HTTP/1.1\r\n"
+                   "Host: %d.%d.%d.%d:%d\r\n"
+                   "Content-Type: application/x-www-form-urlencoded\r\n"
+                   "Content-Length: %d\r\n"
+                   "Connection: close\r\n"
+                   "\r\n%s",
+                   path,
+                   ServerIP[0], ServerIP[1], ServerIP[2], ServerIP[3], SERVER_PORT,
+                   body_len,
+                   body ? body : "");
+
+    if (WIFI_SendData(SOCKET_ID, TxBuf, (uint16_t)len, &sent, SEND_TIMEOUT) != WIFI_STATUS_OK) {
+        printf("HTTP: send failed\r\n");
+        WIFI_CloseClientConnection(SOCKET_ID);
+        return -2;
+    }
+
+    HAL_Delay(200);
+
+    received = 0;
+    WIFI_ReceiveData(SOCKET_ID, RxBuf, resp_size - 1, &received, RECV_TIMEOUT);
+    RxBuf[received] = '\0';
+
+    WIFI_CloseClientConnection(SOCKET_ID);
+
+    if (resp && received > 0) {
+        memcpy(resp, RxBuf, received + 1);
+    }
+
+    return (int)received;
+}
+
+int WiFi_HTTP_PostRFID(const uint8_t uid[4], uint8_t *unlock)
+{
+    char path[64];
+    uint8_t resp[256];
+    int ret;
+
+    snprintf(path, sizeof(path), "/stm32/rfid?uid=%02X%02X%02X%02X",
+             uid[0], uid[1], uid[2], uid[3]);
+
+    printf("HTTP POST %s\r\n", path);
+
+    ret = http_post(path, NULL, resp, sizeof(resp));
+    if (ret < 0)
+        return ret;
+
+    printf("HTTP resp: %s\r\n", resp);
+
+    if (unlock) {
+        *unlock = (strstr((char *)resp, "UNLOCK") != NULL) ? 1 : 0;
+    }
+
+    return 0;
+}
+
+int WiFi_HTTP_PostDoorbell(void)
+{
+    uint8_t resp[256];
+    int ret;
+
+    printf("HTTP POST /stm32/doorbell\r\n");
+
+    ret = http_post("/stm32/doorbell", NULL, resp, sizeof(resp));
+    if (ret < 0)
+        return ret;
+
+    printf("HTTP resp: %s\r\n", resp);
+    return 0;
+}
