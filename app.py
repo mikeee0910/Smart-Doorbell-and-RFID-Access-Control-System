@@ -140,7 +140,7 @@ def get_history_text():
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """
-            SELECT created_at, action
+            SELECT created_at, action, detail
             FROM history_logs
             ORDER BY id DESC
             LIMIT 5
@@ -154,7 +154,10 @@ def get_history_text():
 
     for i, row in enumerate(rows, start=1):
         text += f"{i}. {row['created_at']}\n"
-        text += f"   {row['action']}\n\n"
+        line = row['action']
+        if row['detail'] and 'RFID' in row['action']:
+            line += f"（UID: {row['detail']}）"
+        text += f"   {line}\n\n"
 
     return text.strip()
 
