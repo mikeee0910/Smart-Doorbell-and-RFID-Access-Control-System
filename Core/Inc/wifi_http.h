@@ -7,10 +7,10 @@
 #define WIFI_PASSWORD      "11112222"
 
 /* RPi server IP — change this to your Raspberry Pi's IP */
-#define SERVER_IP_0        192
-#define SERVER_IP_1        168
-#define SERVER_IP_2        1
-#define SERVER_IP_3        100
+#define SERVER_IP_0        172
+#define SERVER_IP_1        20
+#define SERVER_IP_2        10
+#define SERVER_IP_3        4
 #define SERVER_PORT        5001
 
 typedef enum {
