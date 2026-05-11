@@ -14,5 +14,7 @@
 void Servo_Init(void);
 void Servo_Stop(void);
 void Servo_UnlockSequence(void);
+void Servo_UnlockOnly(void);
+void Servo_LockOnly(void);
 
 #endif /* INC_SERVO_H_ */

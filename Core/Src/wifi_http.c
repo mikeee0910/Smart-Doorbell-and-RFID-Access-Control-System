@@ -148,3 +148,38 @@ int WiFi_HTTP_PostDoorbell(void)
     printf("HTTP resp: %s\r\n", resp);
     return 0;
 }
+
+int WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size)
+{
+    uint8_t resp[256];
+    int ret;
+
+    if (cmd_out == NULL || cmd_out_size <= 0) return -1;
+    cmd_out[0] = '\0';
+
+    ret = http_post("/stm32/poll?plain=1", NULL, resp, sizeof(resp));
+    if (ret < 0) return ret;
+
+    char *body = strstr((char *)resp, "\r\n\r\n");
+    body = body ? body + 4 : (char *)resp;
+
+    if (strstr(body, "UNLOCK"))      snprintf(cmd_out, cmd_out_size, "UNLOCK");
+    else if (strstr(body, "LOCK"))   snprintf(cmd_out, cmd_out_size, "LOCK");
+    else if (strstr(body, "STATUS")) snprintf(cmd_out, cmd_out_size, "STATUS");
+    else                              snprintf(cmd_out, cmd_out_size, "NONE");
+
+    return 0;
+}
+
+int WiFi_HTTP_PostAck(const char *result)
+{
+    char path[96];
+    uint8_t resp[128];
+
+    if (result == NULL) return -1;
+
+    snprintf(path, sizeof(path), "/stm32/ack?result=%s&plain=1", result);
+    printf("HTTP POST %s\r\n", path);
+
+    return http_post(path, NULL, resp, sizeof(resp));
+}

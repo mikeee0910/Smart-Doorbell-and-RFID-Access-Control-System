@@ -49,3 +49,17 @@ void Servo_UnlockSequence(void)
     Servo_Stop();
 }
 
+void Servo_UnlockOnly(void)
+{
+    Servo_SetPulse(SERVO_UNLOCK_US);
+    HAL_Delay(UNLOCK_TIME_MS);
+    Servo_Stop();
+}
+
+void Servo_LockOnly(void)
+{
+    Servo_SetPulse(SERVO_LOCK_US);
+    HAL_Delay(LOCK_TIME_MS);
+    Servo_Stop();
+}
+

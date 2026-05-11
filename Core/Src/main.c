@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <string.h>
 #include "rc522.h"
 #include "button.h"
 #include "servo.h"
@@ -195,6 +196,36 @@ int main(void)
 	    if (wifi_ok)
 	        WiFi_HTTP_PostDoorbell();
 	    Servo_UnlockSequence();
+	}
+
+	/* 每秒向 server 拉一次 LINE 指令 */
+	static uint32_t last_poll = 0;
+	static uint8_t door_locked = 1;
+	if (wifi_ok && (HAL_GetTick() - last_poll > 1000))
+	{
+	    last_poll = HAL_GetTick();
+	    char cmd[16] = {0};
+	    if (WiFi_HTTP_Poll(cmd, sizeof(cmd)) == 0)
+	    {
+	        if (strcmp(cmd, "UNLOCK") == 0)
+	        {
+	            printf("LINE: UNLOCK\r\n");
+	            Servo_UnlockOnly();
+	            door_locked = 0;
+	            WiFi_HTTP_PostAck("OK_UNLOCKED");
+	        }
+	        else if (strcmp(cmd, "LOCK") == 0)
+	        {
+	            printf("LINE: LOCK\r\n");
+	            Servo_LockOnly();
+	            door_locked = 1;
+	            WiFi_HTTP_PostAck("OK_LOCKED");
+	        }
+	        else if (strcmp(cmd, "STATUS") == 0)
+	        {
+	            WiFi_HTTP_PostAck(door_locked ? "LOCKED" : "UNLOCKED");
+	        }
+	    }
 	}
 
 	HAL_Delay(100);
