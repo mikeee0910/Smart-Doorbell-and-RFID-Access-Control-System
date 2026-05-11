@@ -5,6 +5,7 @@
  *      Author: USER
  */
 #include "servo.h"
+#include "cmsis_os.h"
 
 extern TIM_HandleTypeDef htim2;
 
@@ -38,13 +39,13 @@ void Servo_Stop(void)
 void Servo_UnlockSequence(void)
 {
     Servo_SetPulse(SERVO_UNLOCK_US);
-    HAL_Delay(UNLOCK_TIME_MS);
+    osDelay(UNLOCK_TIME_MS);
 
     Servo_Stop();
-    HAL_Delay(HOLD_TIME_MS);
+    osDelay(HOLD_TIME_MS);
 
     Servo_SetPulse(SERVO_LOCK_US);
-    HAL_Delay(LOCK_TIME_MS);
+    osDelay(LOCK_TIME_MS);
 
     Servo_Stop();
 }
@@ -52,14 +53,14 @@ void Servo_UnlockSequence(void)
 void Servo_UnlockOnly(void)
 {
     Servo_SetPulse(SERVO_UNLOCK_US);
-    HAL_Delay(UNLOCK_TIME_MS);
+    osDelay(UNLOCK_TIME_MS);
     Servo_Stop();
 }
 
 void Servo_LockOnly(void)
 {
     Servo_SetPulse(SERVO_LOCK_US);
-    HAL_Delay(LOCK_TIME_MS);
+    osDelay(LOCK_TIME_MS);
     Servo_Stop();
 }
 

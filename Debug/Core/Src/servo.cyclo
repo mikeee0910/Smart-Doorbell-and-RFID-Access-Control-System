@@ -1,4 +1,6 @@
-../Core/Src/servo.c:22:13:Servo_SetPulse	1
-../Core/Src/servo.c:27:6:Servo_Init	1
-../Core/Src/servo.c:33:6:Servo_Stop	1
-../Core/Src/servo.c:38:6:Servo_UnlockSequence	1
+../Core/Src/servo.c:23:13:Servo_SetPulse	1
+../Core/Src/servo.c:28:6:Servo_Init	1
+../Core/Src/servo.c:34:6:Servo_Stop	1
+../Core/Src/servo.c:39:6:Servo_UnlockSequence	1
+../Core/Src/servo.c:53:6:Servo_UnlockOnly	1
+../Core/Src/servo.c:60:6:Servo_LockOnly	1

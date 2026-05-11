@@ -173,7 +173,7 @@ CubeMX generate 後：
 ## 五、踩雷檢查清單
 
 - [ ] Timebase 改成 TIM6/TIM7（不然 HAL_Delay 跟 RTOS 打架）
-- [ ] 所有 `HAL_Delay` 在 task 裡改用 `osDelay`（毫秒一致，可直接替換）
+- [x] 所有 `HAL_Delay` 在 task 裡改用 `osDelay`（毫秒一致，可直接替換）
 - [ ] 不要從 ISR 呼叫 `osMessageQueuePut`，要用 `osMessageQueuePutFromISR` 版本
 - [ ] WiFi SPI 中斷優先級要 ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY`（NVIC 數字要夠大）
 - [ ] Servo 用 PWM timer（TIM2），不受 RTOS 影響

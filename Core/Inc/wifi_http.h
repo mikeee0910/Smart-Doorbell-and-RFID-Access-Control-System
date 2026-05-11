@@ -2,6 +2,7 @@
 #define WIFI_HTTP_H
 
 #include <stdint.h>
+#include "cmsis_os.h"
 
 #define WIFI_SSID          "Meng"
 #define WIFI_PASSWORD      "11112222"
@@ -10,7 +11,7 @@
 #define SERVER_IP_0        172
 #define SERVER_IP_1        20
 #define SERVER_IP_2        10
-#define SERVER_IP_3        4
+#define SERVER_IP_3        2
 #define SERVER_PORT        5001
 
 typedef enum {
@@ -23,7 +24,7 @@ typedef enum {
 int  WiFi_HTTP_Init(void);
 int  WiFi_HTTP_PostRFID(const uint8_t uid[4], uint8_t *unlock);
 int  WiFi_HTTP_PostDoorbell(void);
-int  WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size);
+int  WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size, osMessageQueueId_t abort_queue);
 int  WiFi_HTTP_PostAck(const char *result);
 
 #endif /* WIFI_HTTP_H */

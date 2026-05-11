@@ -1,5 +1,6 @@
 #include "wifi_http.h"
 #include "wifi.h"
+#include "cmsis_os.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -42,7 +43,9 @@ int WiFi_HTTP_Init(void)
     return 0;
 }
 
-static int http_post_ex(const char *path, const char *body, uint8_t *resp, uint16_t resp_size, uint32_t recv_timeout_ms)
+static int http_post_ex(const char *path, const char *body, uint8_t *resp,
+                        uint16_t resp_size, uint32_t recv_timeout_ms,
+                        osMessageQueueId_t abort_queue)
 {
     uint16_t sent, received;
     int body_len = body ? (int)strlen(body) : 0;
@@ -72,7 +75,7 @@ static int http_post_ex(const char *path, const char *body, uint8_t *resp, uint1
         return -2;
     }
 
-    HAL_Delay(200);
+    osDelay(200);
 
     received = 0;
     uint32_t deadline = HAL_GetTick() + recv_timeout_ms;
@@ -83,7 +86,12 @@ static int http_post_ex(const char *path, const char *body, uint8_t *resp, uint1
         WIFI_ReceiveData(SOCKET_ID, RxBuf + received,
                          cap - received, &got, 300);
         if (got == 0) {
-            HAL_Delay(50);
+            if (abort_queue && osMessageQueueGetCount(abort_queue) > 0) {
+                printf("HTTP: poll aborted, event pending\r\n");
+                WIFI_CloseClientConnection(SOCKET_ID);
+                return -3;
+            }
+            osDelay(50);
             continue;
         }
         received += got;
@@ -112,7 +120,7 @@ static int http_post_ex(const char *path, const char *body, uint8_t *resp, uint1
 
 static int http_post(const char *path, const char *body, uint8_t *resp, uint16_t resp_size)
 {
-    return http_post_ex(path, body, resp, resp_size, 1500);
+    return http_post_ex(path, body, resp, resp_size, 1500, NULL);
 }
 
 int WiFi_HTTP_PostRFID(const uint8_t uid[4], uint8_t *unlock)
@@ -154,7 +162,7 @@ int WiFi_HTTP_PostDoorbell(void)
     return 0;
 }
 
-int WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size)
+int WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size, osMessageQueueId_t abort_queue)
 {
     uint8_t resp[256];
     int ret;
@@ -162,8 +170,7 @@ int WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size)
     if (cmd_out == NULL || cmd_out_size <= 0) return -1;
     cmd_out[0] = '\0';
 
-    /* long polling: server 最多 hang 25 秒，留 5 秒緩衝 */
-    ret = http_post_ex("/stm32/poll?plain=1", NULL, resp, sizeof(resp), 30000);
+    ret = http_post_ex("/stm32/poll?plain=1", NULL, resp, sizeof(resp), 30000, abort_queue);
     if (ret < 0) return ret;
 
     char *body = strstr((char *)resp, "\r\n\r\n");

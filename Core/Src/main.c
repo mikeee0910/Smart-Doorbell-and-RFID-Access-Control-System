@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -27,6 +28,8 @@
 #include "button.h"
 #include "servo.h"
 #include "wifi_http.h"
+#include "app_events.h"
+#include "app_tasks.h"
 #include "es_wifi_io.h"
 /* USER CODE END Includes */
 
@@ -62,6 +65,13 @@ UART_HandleTypeDef huart3;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -78,6 +88,8 @@ static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
+void StartDefaultTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -133,7 +145,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  printf("=== Smart Doorbell + RFID (WiFi) ===\r\n");
+  printf("=== Smart Doorbell + RFID (FreeRTOS) ===\r\n");
 
   HAL_Delay(100);
 
@@ -147,15 +159,66 @@ int main(void)
       printf("RC522 SPI OK\r\n");
   else
       printf("RC522 SPI FAILED\r\n");
-
-  int wifi_ok = (WiFi_HTTP_Init() == 0) ? 1 : 0;
-  if (!wifi_ok)
-      printf("WiFi init failed, running offline\r\n");
-
-  uint8_t status;
-  uint8_t tagType[2];
-  uint8_t uid[5];
   /* USER CODE END 2 */
+
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  const osMutexAttr_t mutex_attr = { .name = "doorMutex" };
+  doorMutexHandle = osMutexNew(&mutex_attr);
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  const osMessageQueueAttr_t queue_attr = { .name = "wifiEventQueue" };
+  wifiEventQueueHandle = osMessageQueueNew(8, sizeof(AppEvent_t), &queue_attr);
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  const osThreadAttr_t rfidTask_attr = {
+      .name = "RFIDTask",
+      .stack_size = 512 * 4,
+      .priority = osPriorityNormal,
+  };
+  osThreadNew(RFIDTask_Entry, NULL, &rfidTask_attr);
+
+  const osThreadAttr_t buttonTask_attr = {
+      .name = "ButtonTask",
+      .stack_size = 256 * 4,
+      .priority = osPriorityNormal,
+  };
+  osThreadNew(ButtonTask_Entry, NULL, &buttonTask_attr);
+
+  const osThreadAttr_t wifiTask_attr = {
+      .name = "WiFiTask",
+      .stack_size = 1024 * 4,
+      .priority = osPriorityBelowNormal,
+  };
+  osThreadNew(WiFiTask_Entry, NULL, &wifiTask_attr);
+
+  printf("Starting RTOS kernel...\r\n");
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -165,69 +228,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	status = RC522_Request(PICC_REQIDL, tagType);
-
-	if (status == MI_OK)
-	{
-		status = RC522_Anticoll(uid);
-
-		if (status == MI_OK)
-		{
-			printf("UID: %02X %02X %02X %02X\r\n",
-				   uid[0], uid[1], uid[2], uid[3]);
-
-			if (wifi_ok) {
-				uint8_t unlock = 0;
-				if (WiFi_HTTP_PostRFID(uid, &unlock) == 0 && unlock) {
-					printf("Server: UNLOCK\r\n");
-					Servo_UnlockSequence();
-				} else {
-					printf("Server: DENY\r\n");
-				}
-			}
-
-			HAL_Delay(1000);
-		}
-	}
-
-	if (Button_WasPressed())
-	{
-	    printf("Doorbell pressed\r\n");
-	    if (wifi_ok)
-	        WiFi_HTTP_PostDoorbell();
-	    Servo_UnlockSequence();
-	}
-
-	/* Long polling：server 沒指令時連線會 hang 住，
-	 * 注意：hang 期間 RFID/Button 不會被讀，最長 ~25 秒 */
-	static uint8_t door_locked = 1;
-	if (wifi_ok)
-	{
-	    char cmd[16] = {0};
-	    if (WiFi_HTTP_Poll(cmd, sizeof(cmd)) == 0)
-	    {
-	        if (strcmp(cmd, "UNLOCK") == 0)
-	        {
-	            printf("LINE: UNLOCK\r\n");
-	            Servo_UnlockOnly();
-	            door_locked = 0;
-	            WiFi_HTTP_PostAck("OK_UNLOCKED");
-	        }
-	        else if (strcmp(cmd, "LOCK") == 0)
-	        {
-	            printf("LINE: LOCK\r\n");
-	            Servo_LockOnly();
-	            door_locked = 1;
-	            WiFi_HTTP_PostAck("OK_LOCKED");
-	        }
-	        else if (strcmp(cmd, "STATUS") == 0)
-	        {
-	            WiFi_HTTP_PostAck(door_locked ? "LOCKED" : "UNLOCKED");
-	        }
-	    }
-	}
-
-	HAL_Delay(100);
+    /* Should never reach here after osKernelStart() */
   }
   /* USER CODE END 3 */
 }
@@ -808,10 +809,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -828,6 +829,46 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     Button_EXTI_Callback(GPIO_Pin);
 }
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
