@@ -1,0 +1,4 @@
+../Core/Src/servo.c:22:13:Servo_SetPulse	16	static
+../Core/Src/servo.c:27:6:Servo_Init	8	static
+../Core/Src/servo.c:33:6:Servo_Stop	8	static
+../Core/Src/servo.c:38:6:Servo_UnlockSequence	8	static
