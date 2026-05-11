@@ -19,7 +19,8 @@ from linebot.v3.webhooks import (
 from line_config import (
     CHANNEL_ACCESS_TOKEN,
     CHANNEL_SECRET,
-    NGROK_URL
+    NGROK_URL,
+    ADMIN_USER_ID
 )
 
 import cv2
@@ -61,8 +62,8 @@ door_locked = True
 
 MAX_HISTORY = 10
 
-# 不放在 config，第一次收到 LINE 訊息時自動設定
-admin_user_id = None
+# 從 line_config.py 讀取
+admin_user_id = ADMIN_USER_ID or None
 
 # STM32 指令佇列：Flask 不直接讀 UART，避免跟背景監聽搶資料
 stm32_command_queue = queue.Queue()
@@ -339,25 +340,24 @@ def stm32_worker():
             time.sleep(1)
 
 
-def send_command_to_stm32(command, timeout_sec=3.0):
+STM32_WIFI_API = "http://127.0.0.1:5001/api/command"
+
+
+def send_command_to_stm32(command, timeout_sec=6.0):
     """
-    Flask handler 呼叫這個函式送指令給 STM32。
-    實際 UART 讀寫由 stm32_worker 處理。
+    透過 stm32_wifi_server 把指令丟給 STM32（polling 架構）。
     """
-    if serial is None:
-        return "PYSERIAL_NOT_INSTALLED"
-
-    if not stm32_connected:
-        return "STM32_NOT_CONNECTED"
-
-    response_queue = queue.Queue()
-    stm32_command_queue.put((command, response_queue))
-
     try:
-        result = response_queue.get(timeout=timeout_sec)
-        return result
-
-    except queue.Empty:
+        import requests as _r
+        resp = _r.post(
+            STM32_WIFI_API,
+            json={"command": command, "timeout": timeout_sec - 1},
+            timeout=timeout_sec
+        )
+        data = resp.json()
+        return data.get("result") or ("OK" if data.get("ok") else "NO_RESPONSE")
+    except Exception as e:
+        print("send_command_to_stm32 error:", e)
         return "NO_RESPONSE"
 
 
@@ -405,13 +405,31 @@ def handle_message(event):
 
     user_text = event.message.text.strip()
 
-    # 第一次收到 LINE 訊息時，自動記住管理員 user_id
+    # 沒在 config 設定時，用第一次收到的 user_id（僅限本次執行）
     if admin_user_id is None:
         admin_user_id = event.source.user_id
-        print("Admin user ID registered:", admin_user_id)
+        print("Admin user ID registered (from message):", admin_user_id)
 
     print("User ID:", event.source.user_id)
     print("User text:", user_text)
+
+    # 權限檢查：非管理員回「無權限」
+    if event.source.user_id != admin_user_id:
+        print("Unauthorized message from:", event.source.user_id)
+        if event.reply_token.startswith("00000000000000000000000000000000"):
+            return
+        try:
+            with ApiClient(configuration) as api_client:
+                line_bot_api = MessagingApi(api_client)
+                line_bot_api.reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text="無權限")]
+                    )
+                )
+        except Exception as e:
+            print("LINE reply error:", e)
+        return
 
     # -------------------------
     # 開門
@@ -556,6 +574,11 @@ def handle_message(event):
 
 if __name__ == "__main__":
     init_db()
+
+    if admin_user_id:
+        print("Admin user ID from config:", admin_user_id)
+    else:
+        print("ADMIN_USER_ID not set in line_config.py. Send any message to the bot first.")
 
     stm32_thread = threading.Thread(target=stm32_worker, daemon=True)
     stm32_thread.start()

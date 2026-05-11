@@ -1,15 +1,34 @@
 from flask import Flask, jsonify, request
 
 import os
+import queue
 import sqlite3
 import sys
+import threading
 import time
+
+import requests
 
 
 app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "door_logs.db")
+
+LINE_BRIDGE_URL = "http://127.0.0.1:5000/test_doorbell"
+
+
+def trigger_line_doorbell():
+    try:
+        requests.get(LINE_BRIDGE_URL, timeout=3)
+    except Exception as e:
+        print("LINE bridge call failed:", e)
+
+
+# 一次只允許一筆指令 in-flight，避免狀態混亂
+command_lock = threading.Lock()
+pending_command = None         # 等 STM32 來拉的指令
+inflight_result_queue = None   # 等 STM32 ack 完寫回結果
 
 
 def now_text():
@@ -134,6 +153,8 @@ def stm32_doorbell():
     add_event("DOORBELL")
     add_history("門鈴觸發", "STM32 WiFi")
 
+    threading.Thread(target=trigger_line_doorbell, daemon=True).start()
+
     return respond({
         "ok": True,
         "event": "DOORBELL",
@@ -179,6 +200,74 @@ def stm32_rfid():
         "authorized": False,
         "command": "DENY"
     })
+
+
+@app.route("/stm32/poll", methods=["GET", "POST"])
+def stm32_poll():
+    global pending_command
+
+    with command_lock:
+        cmd = pending_command
+        pending_command = None
+
+    if cmd is None:
+        return respond({"command": "NONE"})
+
+    print("STM32 poll → 送出指令:", cmd)
+    return respond({"command": cmd})
+
+
+@app.route("/stm32/ack", methods=["GET", "POST"])
+def stm32_ack():
+    global inflight_result_queue
+
+    data = read_payload()
+    result = str(data.get("result", "")).strip().upper()
+
+    if not result:
+        return respond({"ok": False, "error": "missing result", "command": "OK"}, 400)
+
+    print("STM32 ack:", result)
+
+    with command_lock:
+        rq = inflight_result_queue
+        inflight_result_queue = None
+
+    if rq is not None:
+        rq.put(result)
+
+    return respond({"ok": True, "command": "OK"})
+
+
+@app.route("/api/command", methods=["POST"])
+def api_command():
+    """LINE bot (app.py) 呼叫這支，把 UNLOCK/LOCK/STATUS 丟給 STM32"""
+    global pending_command, inflight_result_queue
+
+    data = read_payload()
+    command = str(data.get("command", "")).strip().upper()
+    timeout_sec = float(data.get("timeout", 5.0))
+
+    if command not in ("UNLOCK", "LOCK", "STATUS"):
+        return respond({"ok": False, "error": "unknown command"}, 400)
+
+    rq = queue.Queue()
+
+    with command_lock:
+        if pending_command is not None or inflight_result_queue is not None:
+            return respond({"ok": False, "error": "busy", "result": "BUSY"}, 503)
+        pending_command = command
+        inflight_result_queue = rq
+
+    try:
+        result = rq.get(timeout=timeout_sec)
+    except queue.Empty:
+        with command_lock:
+            pending_command = None
+            inflight_result_queue = None
+        return respond({"ok": False, "error": "timeout", "result": "NO_RESPONSE"})
+
+    return respond({"ok": True, "result": result})
 
 
 @app.route("/stm32/event", methods=["GET", "POST"])
