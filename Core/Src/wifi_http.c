@@ -93,7 +93,7 @@ int WiFi_HTTP_PostRFID(const uint8_t uid[4], uint8_t *unlock)
     uint8_t resp[256];
     int ret;
 
-    snprintf(path, sizeof(path), "/stm32/rfid?uid=%02X%02X%02X%02X",
+    snprintf(path, sizeof(path), "/stm32/rfid?uid=%02X%02X%02X%02X&plain=1",
              uid[0], uid[1], uid[2], uid[3]);
 
     printf("HTTP POST %s\r\n", path);
@@ -118,7 +118,7 @@ int WiFi_HTTP_PostDoorbell(void)
 
     printf("HTTP POST /stm32/doorbell\r\n");
 
-    ret = http_post("/stm32/doorbell", NULL, resp, sizeof(resp));
+    ret = http_post("/stm32/doorbell?plain=1", NULL, resp, sizeof(resp));
     if (ret < 0)
         return ret;
 
