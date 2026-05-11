@@ -75,7 +75,30 @@ static int http_post(const char *path, const char *body, uint8_t *resp, uint16_t
     HAL_Delay(200);
 
     received = 0;
-    WIFI_ReceiveData(SOCKET_ID, RxBuf, resp_size - 1, &received, RECV_TIMEOUT);
+    uint32_t deadline = HAL_GetTick() + 1500;
+    uint16_t cap = (resp_size < sizeof(RxBuf)) ? (uint16_t)(resp_size - 1)
+                                               : (uint16_t)(sizeof(RxBuf) - 1);
+    while (HAL_GetTick() < deadline && received < cap) {
+        uint16_t got = 0;
+        WIFI_ReceiveData(SOCKET_ID, RxBuf + received,
+                         cap - received, &got, 300);
+        if (got == 0) {
+            HAL_Delay(50);
+            continue;
+        }
+        received += got;
+        if (strstr((char *)RxBuf, "\r\n\r\n") != NULL) {
+            uint32_t body_deadline = HAL_GetTick() + 400;
+            while (HAL_GetTick() < body_deadline && received < cap) {
+                got = 0;
+                WIFI_ReceiveData(SOCKET_ID, RxBuf + received,
+                                 cap - received, &got, 200);
+                if (got == 0) break;
+                received += got;
+            }
+            break;
+        }
+    }
     RxBuf[received] = '\0';
 
     WIFI_CloseClientConnection(SOCKET_ID);
