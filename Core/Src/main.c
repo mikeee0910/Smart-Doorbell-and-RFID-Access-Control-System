@@ -198,12 +198,11 @@ int main(void)
 	    Servo_UnlockSequence();
 	}
 
-	/* 每秒向 server 拉一次 LINE 指令 */
-	static uint32_t last_poll = 0;
+	/* Long polling：server 沒指令時連線會 hang 住，
+	 * 注意：hang 期間 RFID/Button 不會被讀，最長 ~25 秒 */
 	static uint8_t door_locked = 1;
-	if (wifi_ok && (HAL_GetTick() - last_poll > 1000))
+	if (wifi_ok)
 	{
-	    last_poll = HAL_GetTick();
 	    char cmd[16] = {0};
 	    if (WiFi_HTTP_Poll(cmd, sizeof(cmd)) == 0)
 	    {
