@@ -1,6 +1,9 @@
 ../Core/Src/servo.c:23:13:Servo_SetPulse	16	static
-../Core/Src/servo.c:28:6:Servo_Init	8	static
-../Core/Src/servo.c:34:6:Servo_Stop	8	static
-../Core/Src/servo.c:39:6:Servo_UnlockSequence	8	static
-../Core/Src/servo.c:53:6:Servo_UnlockOnly	8	static
-../Core/Src/servo.c:60:6:Servo_LockOnly	8	static
+../Core/Src/servo.c:28:12:Servo_ReadSwitch	8	static
+../Core/Src/servo.c:33:6:Servo_Init	32	static
+../Core/Src/servo.c:53:6:Servo_Stop	8	static
+../Core/Src/servo.c:63:12:Servo_WaitTurns	32	static
+../Core/Src/servo.c:88:6:Servo_UnlockSequence	8	static
+../Core/Src/servo.c:95:5:Servo_UnlockOnly	8	static
+../Core/Src/servo.c:102:5:Servo_LockOnly	8	static
+../Core/Src/servo.c:109:5:Servo_IsLocked	8	static

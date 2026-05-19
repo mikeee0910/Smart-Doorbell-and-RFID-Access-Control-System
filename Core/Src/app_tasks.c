@@ -34,6 +34,7 @@ void RFIDTask_Entry(void *argument)
 void ButtonTask_Entry(void *argument)
 {
     printf("[ButtonTask] started\r\n");
+    int prev_pos = -1;
 
     for (;;) {
         if (Button_WasPressed()) {
@@ -41,6 +42,13 @@ void ButtonTask_Entry(void *argument)
             AppEvent_t e = { .type = EVT_DOORBELL };
             osMessageQueuePut(wifiEventQueueHandle, &e, 0, 0);
         }
+
+        int pos = Servo_IsLocked();
+        if (pos != prev_pos) {
+            printf("[LockPos] %s\r\n", pos ? "HIGH (locked)" : "LOW (unlocked)");
+            prev_pos = pos;
+        }
+
         osDelay(50);
     }
 }
@@ -62,10 +70,13 @@ void WiFiTask_Entry(void *argument)
                 uint8_t unlock = 0;
                 if (WiFi_HTTP_PostRFID(e.uid, &unlock) == 0 && unlock) {
                     printf("Server: UNLOCK\r\n");
-                    Servo_UnlockOnly();
-                    osMutexAcquire(doorMutexHandle, osWaitForever);
-                    door_locked = 0;
-                    osMutexRelease(doorMutexHandle);
+                    if (Servo_UnlockOnly() == 0 && !Servo_IsLocked()) {
+                        osMutexAcquire(doorMutexHandle, osWaitForever);
+                        door_locked = 0;
+                        osMutexRelease(doorMutexHandle);
+                    } else {
+                        printf("RFID: unlock FAILED (pos=%d)\r\n", Servo_IsLocked());
+                    }
                 } else {
                     printf("Server: DENY\r\n");
                 }
@@ -79,23 +90,32 @@ void WiFiTask_Entry(void *argument)
         if (WiFi_HTTP_Poll(cmd, sizeof(cmd), wifiEventQueueHandle) == 0) {
             if (strcmp(cmd, "UNLOCK") == 0) {
                 printf("LINE: UNLOCK\r\n");
-                Servo_UnlockOnly();
-                osMutexAcquire(doorMutexHandle, osWaitForever);
-                door_locked = 0;
-                osMutexRelease(doorMutexHandle);
-                WiFi_HTTP_PostAck("OK_UNLOCKED");
+                if (Servo_UnlockOnly() == 0 && !Servo_IsLocked()) {
+                    osMutexAcquire(doorMutexHandle, osWaitForever);
+                    door_locked = 0;
+                    osMutexRelease(doorMutexHandle);
+                    WiFi_HTTP_PostAck("OK_UNLOCKED");
+                } else {
+                    printf("LINE: unlock FAILED (pos=%d)\r\n", Servo_IsLocked());
+                    WiFi_HTTP_PostAck("FAIL_UNLOCK");
+                }
             } else if (strcmp(cmd, "LOCK") == 0) {
                 printf("LINE: LOCK\r\n");
-                Servo_LockOnly();
-                osMutexAcquire(doorMutexHandle, osWaitForever);
-                door_locked = 1;
-                osMutexRelease(doorMutexHandle);
-                WiFi_HTTP_PostAck("OK_LOCKED");
+                if (Servo_LockOnly() == 0 && Servo_IsLocked()) {
+                    osMutexAcquire(doorMutexHandle, osWaitForever);
+                    door_locked = 1;
+                    osMutexRelease(doorMutexHandle);
+                    WiFi_HTTP_PostAck("OK_LOCKED");
+                } else {
+                    printf("LINE: lock FAILED (pos=%d)\r\n", Servo_IsLocked());
+                    WiFi_HTTP_PostAck("FAIL_LOCK");
+                }
             } else if (strcmp(cmd, "STATUS") == 0) {
+                uint8_t hw_locked = Servo_IsLocked();
                 osMutexAcquire(doorMutexHandle, osWaitForever);
-                uint8_t locked = door_locked;
+                door_locked = hw_locked;
                 osMutexRelease(doorMutexHandle);
-                WiFi_HTTP_PostAck(locked ? "LOCKED" : "UNLOCKED");
+                WiFi_HTTP_PostAck(hw_locked ? "LOCKED" : "UNLOCKED");
             }
         }
     }
