@@ -2,27 +2,9 @@
 
 基於 STM32L475 IoT Discovery Kit 與 Raspberry Pi 的智慧門鈴暨 RFID 門禁系統。使用者可透過 LINE Bot 遠端控制門鎖、接收門鈴通知與門口拍照，也可透過 RFID 卡片在本地開鎖。
 
-## 系統架構
+## 系統流程圖
 
-```
-┌──────────────┐         WiFi (HTTP)         ┌──────────────────┐
-│   STM32L475  │ ◄──────────────────────────► │   Raspberry Pi   │
-│  IoT Discovery Kit     │                    │  (Flask Server)  │
-│              │                              │                  │
-│ - RC522 RFID │                              │ - LINE Bot       │
-│ - 門鈴按鈕   │                              │ - USB Webcam     │
-│ - SG90 伺服馬達 (門鎖)│                     │ - STM32 通訊橋接  │
-│ - 簧片開關 (位置偵測)  │                     │ - SQLite 歷史紀錄 │
-│ - FreeRTOS   │                              │                  │
-└──────────────┘                              └──────┬───────────┘
-                                                     │
-                                                     │ HTTPS (ngrok)
-                                                     ▼
-                                              ┌──────────────┐
-                                              │  LINE Platform │
-                                              │   (使用者手機)  │
-                                              └──────────────┘
-```
+![System Flow Diagram](docs/system_flow.png)
 
 ## 功能
 
@@ -50,7 +32,6 @@
 | **`rpi`** | Raspberry Pi 代碼 | Flask 伺服器、LINE Bot、Webcam 拍照、STM32 WiFi 橋接 |
 | **`stm32`** | STM32 代碼 | STM32CubeIDE 專案、FreeRTOS 任務、RFID / 伺服馬達 / WiFi 驅動 |
 
-## 技術棧
 
 ### Raspberry Pi (`rpi` branch)
 
