@@ -152,3 +152,6 @@ line_config.py
 
 # Generated camera images
 static/latest.jpg
+
+# Claude Code
+.claude/
