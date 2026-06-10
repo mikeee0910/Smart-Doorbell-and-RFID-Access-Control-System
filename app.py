@@ -56,7 +56,7 @@ BAUDRATE = 115200
 
 # 車牌辨識 / 柵欄設定
 PLATE_CONF_THRESHOLD = 0.5      # OCR 信心值門檻,低於此視為「沒認出車牌」
-BARRIER_AUTO_CLOSE_SEC = 8      # 車牌自動開柵欄後幾秒自動關;設 0 表示不自動關
+BARRIER_AUTO_CLOSE_SEC = 0      # 車牌自動開柵欄後幾秒自動關;設 0 表示不自動關
 
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -327,7 +327,8 @@ def push_doorbell_photo():
     # ---- 白名單車牌 → 自動開柵欄 ----
     if matched:
         name = matched["name"] or norm
-        result = send_command_to_stm32("UNLOCK", wait_ack=False)
+        result = send_command_to_stm32("UNLOCK")
+        print("Plate matched, STM32 UNLOCK result:", result)
 
         if result in ("QUEUED", "OK_UNLOCKED"):
             add_history(f"{name} 車牌開柵欄", "車牌辨識", detail=norm)

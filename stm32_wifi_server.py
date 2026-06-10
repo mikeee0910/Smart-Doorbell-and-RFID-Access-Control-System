@@ -263,11 +263,13 @@ def api_command():
     rq = queue.Queue()
 
     with command_lock:
-        if inflight_result_queue is not None:
-            return respond({"ok": False, "error": "busy", "result": "BUSY"}, 503)
         if not wait_ack:
             pending_command_queue.put(command)
+            print("API command queued without ack wait:", command)
             return respond({"ok": True, "result": "QUEUED"})
+
+        if inflight_result_queue is not None:
+            return respond({"ok": False, "error": "busy", "result": "BUSY"}, 503)
         inflight_result_queue = rq
         pending_command_queue.put(command)
 
