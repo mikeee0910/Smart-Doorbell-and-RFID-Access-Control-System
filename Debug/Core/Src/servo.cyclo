@@ -1,9 +1,8 @@
-../Core/Src/servo.c:23:13:Servo_SetPulse	1
-../Core/Src/servo.c:28:12:Servo_ReadSwitch	1
-../Core/Src/servo.c:33:6:Servo_Init	1
-../Core/Src/servo.c:53:6:Servo_Stop	1
-../Core/Src/servo.c:63:12:Servo_WaitTurns	6
-../Core/Src/servo.c:88:6:Servo_UnlockSequence	1
-../Core/Src/servo.c:95:5:Servo_UnlockOnly	1
-../Core/Src/servo.c:102:5:Servo_LockOnly	1
-../Core/Src/servo.c:109:5:Servo_IsLocked	1
+../Core/Src/servo.c:27:13:Servo_SetPulse	1
+../Core/Src/servo.c:33:13:Servo_RunForMs	1
+../Core/Src/servo.c:40:6:Servo_Init	1
+../Core/Src/servo.c:46:6:Servo_Stop	1
+../Core/Src/servo.c:51:6:Servo_UnlockSequence	1
+../Core/Src/servo.c:58:5:Servo_UnlockOnly	2
+../Core/Src/servo.c:71:5:Servo_LockOnly	2
+../Core/Src/servo.c:84:5:Servo_IsLocked	1
