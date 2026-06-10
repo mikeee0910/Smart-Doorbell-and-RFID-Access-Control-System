@@ -23,7 +23,7 @@ typedef enum {
 
 int  WiFi_HTTP_Init(void);
 int  WiFi_HTTP_PostRFID(const uint8_t uid[4], uint8_t *unlock);
-int  WiFi_HTTP_PostDoorbell(void);
+int  WiFi_HTTP_PostDoorbell(uint8_t *unlock);
 int  WiFi_HTTP_Poll(char *cmd_out, int cmd_out_size, osMessageQueueId_t abort_queue);
 int  WiFi_HTTP_PostAck(const char *result);
 

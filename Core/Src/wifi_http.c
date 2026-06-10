@@ -147,18 +147,26 @@ int WiFi_HTTP_PostRFID(const uint8_t uid[4], uint8_t *unlock)
     return 0;
 }
 
-int WiFi_HTTP_PostDoorbell(void)
+int WiFi_HTTP_PostDoorbell(uint8_t *unlock)
 {
     uint8_t resp[256];
     int ret;
 
+    if (unlock) *unlock = 0;
+
     printf("HTTP POST /stm32/doorbell\r\n");
 
-    ret = http_post("/stm32/doorbell?plain=1", NULL, resp, sizeof(resp));
+    /* 伺服器要先拍照 + 車牌辨識才回應(約 2~3 秒),recv timeout 拉到 15 秒 */
+    ret = http_post_ex("/stm32/doorbell?plain=1", NULL, resp, sizeof(resp), 15000, NULL);
     if (ret < 0)
         return ret;
 
     printf("HTTP resp: %s\r\n", resp);
+
+    /* 回應 body 是 "UNLOCK"(白名單車牌)或 "OK"(其他) */
+    if (unlock)
+        *unlock = (strstr((char *)resp, "UNLOCK") != NULL) ? 1 : 0;
+
     return 0;
 }
 

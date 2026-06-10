@@ -81,7 +81,16 @@ void WiFiTask_Entry(void *argument)
                     printf("Server: DENY\r\n");
                 }
             } else if (e.type == EVT_DOORBELL) {
-                WiFi_HTTP_PostDoorbell();
+                /* 門鈴:伺服器回應裡會帶開門指令(像 RFID 一樣,不走 poll/ack) */
+                uint8_t unlock = 0;
+                if (WiFi_HTTP_PostDoorbell(&unlock) == 0 && unlock) {
+                    printf("Doorbell: UNLOCK (plate matched)\r\n");
+                    /* 開 → 等3秒 → 關(車過後自動關;只想開不關改成 Servo_UnlockOnly()) */
+                    Servo_UnlockSequence();
+                    osMutexAcquire(doorMutexHandle, osWaitForever);
+                    door_locked = Servo_IsLocked();
+                    osMutexRelease(doorMutexHandle);
+                }
             }
             continue;
         }
