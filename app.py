@@ -327,9 +327,9 @@ def push_doorbell_photo():
     # ---- 白名單車牌 → 自動開柵欄 ----
     if matched:
         name = matched["name"] or norm
-        result = send_command_to_stm32("UNLOCK")
+        result = send_command_to_stm32("UNLOCK", wait_ack=False)
 
-        if result == "OK_UNLOCKED":
+        if result in ("QUEUED", "OK_UNLOCKED"):
             add_history(f"{name} 車牌開柵欄", "車牌辨識", detail=norm)
             schedule_barrier_auto_close()
             text = f"車牌 {norm}（{name}）已自動開柵欄"
@@ -434,7 +434,7 @@ def stm32_worker():
 STM32_WIFI_API = "http://127.0.0.1:5001/api/command"
 
 
-def send_command_to_stm32(command, timeout_sec=6.0):
+def send_command_to_stm32(command, timeout_sec=6.0, wait_ack=True):
     """
     透過 stm32_wifi_server 把指令丟給 STM32（polling 架構）。
     """
@@ -442,7 +442,7 @@ def send_command_to_stm32(command, timeout_sec=6.0):
         import requests as _r
         resp = _r.post(
             STM32_WIFI_API,
-            json={"command": command, "timeout": timeout_sec - 1},
+            json={"command": command, "timeout": timeout_sec - 1, "wait_ack": wait_ack},
             timeout=timeout_sec
         )
         data = resp.json()

@@ -251,6 +251,11 @@ def api_command():
     data = read_payload()
     command = str(data.get("command", "")).strip().upper()
     timeout_sec = float(data.get("timeout", 5.0))
+    wait_ack = data.get("wait_ack", True)
+    if isinstance(wait_ack, str):
+        wait_ack = wait_ack.strip().lower() not in ("0", "false", "no", "off")
+    else:
+        wait_ack = bool(wait_ack)
 
     if command not in ("UNLOCK", "LOCK", "STATUS"):
         return respond({"ok": False, "error": "unknown command"}, 400)
@@ -260,6 +265,9 @@ def api_command():
     with command_lock:
         if inflight_result_queue is not None:
             return respond({"ok": False, "error": "busy", "result": "BUSY"}, 503)
+        if not wait_ack:
+            pending_command_queue.put(command)
+            return respond({"ok": True, "result": "QUEUED"})
         inflight_result_queue = rq
         pending_command_queue.put(command)
 
