@@ -45,7 +45,8 @@ app = Flask(__name__)
 # Basic Settings
 # =========================
 
-IMAGE_PATH = "static/latest.jpg"
+IMAGE_DIR = "static"           # 拍照存放資料夾
+MAX_IMAGES = 50                # static/ 最多保留幾張(避免無限長大)
 CAMERA_ID = 0
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "door_logs.db")
@@ -177,12 +178,14 @@ def get_history_text():
 def capture_photo_once():
     """
     拍照時才開啟 USB Webcam，拍完立即關閉。
+    每張存成不重複的檔名(時間戳)，回傳存檔路徑;失敗回傳 None。
+    這樣 LINE 連續傳多張時，每張會指到各自的檔案，不會被覆蓋成同一張。
     """
     cap = cv2.VideoCapture(CAMERA_ID)
 
     if not cap.isOpened():
         print("Cannot open USB webcam")
-        return False
+        return None
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -199,22 +202,48 @@ def capture_photo_once():
 
     if not ret or frame is None:
         print("Failed to capture image")
-        return False
+        return None
 
-    os.makedirs("static", exist_ok=True)
-    cv2.imwrite(IMAGE_PATH, frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    os.makedirs(IMAGE_DIR, exist_ok=True)
 
-    print("Photo saved:", IMAGE_PATH)
-    return True
+    # 檔名用「年月日_時分秒_毫秒」，確保每張都不同
+    ms = int((time.time() % 1) * 1000)
+    filename = time.strftime("%Y%m%d_%H%M%S") + f"_{ms:03d}.jpg"
+    path = os.path.join(IMAGE_DIR, filename)
+
+    cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    print("Photo saved:", path)
+
+    prune_old_images()
+
+    return path
 
 
-def get_image_url():
+def prune_old_images(keep=MAX_IMAGES):
+    """
+    只保留最新的 keep 張照片，避免 static/ 無限長大。
+    keep 設大一點，確保 LINE 來得及抓圖前不會被刪掉。
+    """
+    try:
+        files = [
+            os.path.join(IMAGE_DIR, f)
+            for f in os.listdir(IMAGE_DIR)
+            if f.lower().endswith(".jpg")
+        ]
+        files.sort(key=os.path.getmtime, reverse=True)
+
+        for old in files[keep:]:
+            os.remove(old)
+    except Exception as e:
+        print("Prune old images error:", e)
+
+
+def get_image_url(filename):
     """
     LINE ImageMessage 需要 HTTPS URL。
-    timestamp 用來避免圖片快取。
+    filename 為 static/ 下的檔名，每張不同，所以 LINE 連續多張會各自顯示。
     """
-    timestamp = int(time.time())
-    image_url = f"{NGROK_URL}/static/latest.jpg?t={timestamp}"
+    image_url = f"{NGROK_URL}/static/{filename}"
     print("Image URL:", image_url)
     return image_url
 
@@ -275,19 +304,19 @@ def push_doorbell_photo():
 
     add_history("門鈴觸發", "STM32")
 
-    ok = capture_photo_once()
+    image_path = capture_photo_once()
 
-    if not ok:
+    if not image_path:
         add_history("門鈴拍照失敗", "自動推播")
         print("Doorbell photo capture failed")
         _push_to_admin([TextMessage(text="有人按門鈴，但拍照失敗")])
         return
 
     add_history("門鈴拍照成功", "自動推播")
-    image_url = get_image_url()
+    image_url = get_image_url(os.path.basename(image_path))
 
     # ---- 車牌辨識 ----
-    plate, conf = plate_recognition.recognize_plate(IMAGE_PATH)
+    plate, conf = plate_recognition.recognize_plate(image_path)
     norm = plate_utils.normalize_plate(plate) if plate else ""
     recognized = bool(norm) and conf >= PLATE_CONF_THRESHOLD
 
@@ -583,11 +612,11 @@ def handle_message(event):
     # 拍照
     # -------------------------
     elif user_text == "拍照":
-        ok = capture_photo_once()
+        image_path = capture_photo_once()
 
-        if ok:
+        if image_path:
             add_history("拍照成功", "LINE 指令")
-            image_url = get_image_url()
+            image_url = get_image_url(os.path.basename(image_path))
 
             messages = [
                 TextMessage(text="已拍照，照片如下："),
