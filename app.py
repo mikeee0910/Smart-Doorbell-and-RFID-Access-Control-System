@@ -291,17 +291,11 @@ def schedule_barrier_auto_close():
 
 def push_doorbell_photo():
     """
-    門鈴觸發流程:拍照 → 車牌辨識,再分兩種情況:
-      白名單車牌    → 自動開柵欄(UNLOCK),並推播「已開柵欄」+ 照片
-      陌生 / 沒認出 → 維持原本行為:推播照片給管理員人工判斷
+    門鈴觸發:拍照 → 車牌辨識,推 LINE 通知,並「回傳要給 STM32 的指令字串」:
+      白名單車牌    → "UNLOCK"  (STM32 會在門鈴請求的回應裡拿到並直接開門,作法跟 RFID 一樣,
+                                 不走會卡住的 poll/ack 通道)
+      陌生 / 沒認出 → "OK"      (只推照片給管理員人工判斷)
     """
-    global admin_user_id
-
-    if admin_user_id is None:
-        print("No admin_user_id yet. Send any message to the bot first.")
-        add_history("門鈴觸發但尚未設定管理員", "STM32")
-        return
-
     add_history("門鈴觸發", "STM32")
 
     image_path = capture_photo_once()
@@ -310,7 +304,7 @@ def push_doorbell_photo():
         add_history("門鈴拍照失敗", "自動推播")
         print("Doorbell photo capture failed")
         _push_to_admin([TextMessage(text="有人按門鈴，但拍照失敗")])
-        return
+        return "OK"
 
     add_history("門鈴拍照成功", "自動推播")
     image_url = get_image_url(os.path.basename(image_path))
@@ -324,28 +318,17 @@ def push_doorbell_photo():
 
     matched = plate_utils.get_authorized_plate(DB_PATH, norm) if recognized else None
 
-    # ---- 白名單車牌 → 自動開柵欄 ----
+    # ---- 白名單車牌 → 回 UNLOCK,STM32 收到回應後自己開(像 RFID) ----
     if matched:
         name = matched["name"] or norm
-        result = send_command_to_stm32("UNLOCK")
-        print("Plate matched, STM32 UNLOCK result:", result)
-
-        if result in ("QUEUED", "OK_UNLOCKED"):
-            add_history(f"{name} 車牌開柵欄", "車牌辨識", detail=norm)
-            schedule_barrier_auto_close()
-            text = f"車牌 {norm}（{name}）已自動開柵欄"
-        else:
-            add_history("車牌符合但開柵欄失敗", "車牌辨識", detail=f"{norm} / {result}")
-            print("Plate matched but barrier open failed, STM32 response:", result)
-            text = f"辨識到白名單車牌 {norm}（{name}），但開柵欄失敗，請檢查柵欄狀態"
-
+        add_history(f"{name} 車牌開柵欄", "車牌辨識", detail=norm)
         _push_to_admin([
-            TextMessage(text=text),
+            TextMessage(text=f"車牌 {norm}（{name}）已開柵欄"),
             ImageMessage(original_content_url=image_url, preview_image_url=image_url),
         ])
-        return
+        return "UNLOCK"
 
-    # ---- 沒認出 or 不在白名單 → 原本門鈴行為 ----
+    # ---- 沒認出 or 不在白名單 → 只推照片給管理員 ----
     if recognized:
         add_history("車牌不在白名單", "車牌辨識", detail=norm)
         head = f"有車輛按門鈴，車牌：{norm}（不在白名單）"
@@ -356,6 +339,7 @@ def push_doorbell_photo():
         TextMessage(text=head + "，照片如下："),
         ImageMessage(original_content_url=image_url, preview_image_url=image_url),
     ])
+    return "OK"
 
 
 # =========================
@@ -479,11 +463,11 @@ def callback():
 @app.route("/test_doorbell", methods=["GET"])
 def test_doorbell():
     """
-    不接 STM32 時，可以用這個網址測試門鈴拍照推播：
-    https://你的-ngrok網址.ngrok-free.app/test_doorbell
+    門鈴入口:STM32 經由 5001 /stm32/doorbell 同步呼叫這支(也可手動開網址測試)。
+    會「同步」拍照 + 辨識,並把要給 STM32 的指令(UNLOCK / OK)當作純文字回傳。
     """
-    threading.Thread(target=push_doorbell_photo, daemon=True).start()
-    return "Doorbell test started", 200
+    command = push_doorbell_photo()
+    return command, 200, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 # =========================
@@ -721,5 +705,8 @@ if __name__ == "__main__":
 
     stm32_thread = threading.Thread(target=stm32_worker, daemon=True)
     stm32_thread.start()
+
+    # 背景預載車牌辨識模型,避免第一次門鈴才下載/載入而逾時
+    threading.Thread(target=plate_recognition.load_model, daemon=True).start()
 
     app.run(host="0.0.0.0", port=5000)

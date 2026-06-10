@@ -48,6 +48,11 @@ def _get_alpr():
         return None
 
 
+def load_model():
+    """預先載入模型(app 啟動時在背景呼叫,避免第一次門鈴才載入而逾時)。回傳是否成功。"""
+    return _get_alpr() is not None
+
+
 def _to_scalar_confidence(confidence):
     """
     OcrResult.confidence 可能是單一 float,也可能是「每個字元一個 float」的 list。

@@ -20,13 +20,6 @@ DB_PATH = os.path.join(BASE_DIR, "door_logs.db")
 LINE_BRIDGE_URL = "http://127.0.0.1:5000/test_doorbell"
 
 
-def trigger_line_doorbell():
-    try:
-        requests.get(LINE_BRIDGE_URL, timeout=3)
-    except Exception as e:
-        print("LINE bridge call failed:", e)
-
-
 # 一次只允許一筆指令 in-flight，避免狀態混亂
 command_lock = threading.Lock()
 pending_command_queue = queue.Queue()  # STM32 long-poll 從這裡拿
@@ -160,12 +153,23 @@ def stm32_doorbell():
     add_event("DOORBELL")
     add_history("門鈴觸發", "STM32 WiFi")
 
-    threading.Thread(target=trigger_line_doorbell, daemon=True).start()
+    # 同步呼叫 app.py 做「拍照 + 車牌辨識」,把要給 STM32 的指令拿回來:
+    #   白名單車牌 → "UNLOCK";其他 → "OK"。
+    # STM32 直接在這個門鈴請求的回應裡拿到指令去開門(作法跟 RFID 一樣,不走 poll/ack)。
+    command = "OK"
+    try:
+        r = requests.get(LINE_BRIDGE_URL, timeout=12)
+        command = (r.text or "OK").strip().upper()
+        if command not in ("UNLOCK", "OK", "DENY"):
+            command = "OK"
+    except Exception as e:
+        print("doorbell recognize call failed:", e)
+        command = "OK"
 
     return respond({
         "ok": True,
         "event": "DOORBELL",
-        "command": "OK"
+        "command": command
     })
 
 
