@@ -3547,7 +3547,7 @@ int Servo_UnlockOnly(void)
  800183a:	f00c fd01 	bl	800e240 <puts>
     Servo_RunForMs(SERVO_UNLOCK_US, SERVO_RUN_MS);
  800183e:	f240 51dc 	movw	r1, #1500	@ 0x5dc
- 8001842:	f240 60a4 	movw	r0, #1700	@ 0x6a4
+ 8001842:	f240 60d6 	movw	r0, #1750	@ 0x6d6
  8001846:	f7ff ffc3 	bl	80017d0 <Servo_RunForMs>
     s_locked = 0;
  800184a:	4b04      	ldr	r3, [pc, #16]	@ (800185c <Servo_UnlockOnly+0x3c>)
@@ -3590,7 +3590,7 @@ int Servo_LockOnly(void)
  8001886:	f00c fcdb 	bl	800e240 <puts>
     Servo_RunForMs(SERVO_LOCK_US, SERVO_RUN_MS);
  800188a:	f240 51dc 	movw	r1, #1500	@ 0x5dc
- 800188e:	f44f 60a0 	mov.w	r0, #1280	@ 0x500
+ 800188e:	f240 40ce 	movw	r0, #1230	@ 0x4ce
  8001892:	f7ff ff9d 	bl	80017d0 <Servo_RunForMs>
     s_locked = 1;
  8001896:	4b04      	ldr	r3, [pc, #16]	@ (80018a8 <Servo_LockOnly+0x3c>)
