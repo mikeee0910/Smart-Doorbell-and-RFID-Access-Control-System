@@ -9,6 +9,8 @@ import time
 
 import requests
 
+import plate_utils
+
 
 app = Flask(__name__)
 
@@ -77,6 +79,9 @@ def init_db():
         """)
 
         conn.commit()
+
+    # 車牌白名單表(與 app.py 共用同一個 DB,由 plate_utils 統一管理)
+    plate_utils.ensure_plate_table(DB_PATH)
 
 
 def add_history(action, source="STM32 WiFi", detail=None):
@@ -352,12 +357,41 @@ def disable_uid(uid):
     return 0
 
 
+def add_plate_cli(plate, name=None):
+    norm = plate_utils.add_plate(DB_PATH, plate, name)
+    if norm:
+        print(f"已新增/啟用車牌：{norm}")
+        return 0
+    print("車牌格式錯誤(正規化後為空)")
+    return 1
+
+
+def list_plates_cli():
+    rows = plate_utils.list_plates(DB_PATH)
+    if not rows:
+        print("目前沒有合法車牌")
+        return 0
+    for plate, name, enabled, created_at in rows:
+        status = "啟用" if enabled else "停用"
+        print(f"{plate} | {name or '-'} | {status} | {created_at}")
+    return 0
+
+
+def disable_plate_cli(plate):
+    norm = plate_utils.disable_plate(DB_PATH, plate)
+    print(f"已停用車牌：{norm}")
+    return 0
+
+
 def print_usage():
     print("用法：")
     print("  python3 stm32_wifi_server.py")
     print("  python3 stm32_wifi_server.py add-uid <UID> [名稱]")
     print("  python3 stm32_wifi_server.py list-uids")
     print("  python3 stm32_wifi_server.py disable-uid <UID>")
+    print("  python3 stm32_wifi_server.py add-plate <車牌> [名稱]")
+    print("  python3 stm32_wifi_server.py list-plates")
+    print("  python3 stm32_wifi_server.py disable-plate <車牌>")
 
 
 if __name__ == "__main__":
@@ -375,6 +409,16 @@ if __name__ == "__main__":
 
         if command == "disable-uid" and len(sys.argv) >= 3:
             raise SystemExit(disable_uid(sys.argv[2]))
+
+        if command == "add-plate" and len(sys.argv) >= 3:
+            name = sys.argv[3] if len(sys.argv) >= 4 else None
+            raise SystemExit(add_plate_cli(sys.argv[2], name))
+
+        if command == "list-plates":
+            raise SystemExit(list_plates_cli())
+
+        if command == "disable-plate" and len(sys.argv) >= 3:
+            raise SystemExit(disable_plate_cli(sys.argv[2]))
 
         print_usage()
         raise SystemExit(1)

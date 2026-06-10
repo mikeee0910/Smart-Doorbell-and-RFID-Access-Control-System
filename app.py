@@ -30,6 +30,9 @@ import threading
 import queue
 import sqlite3
 
+import plate_recognition
+import plate_utils
+
 try:
     import serial
 except ImportError:
@@ -49,6 +52,10 @@ DB_PATH = os.path.join(BASE_DIR, "door_logs.db")
 
 STM32_PORT = "/dev/ttyACM0"
 BAUDRATE = 115200
+
+# 車牌辨識 / 柵欄設定
+PLATE_CONF_THRESHOLD = 0.5      # OCR 信心值門檻,低於此視為「沒認出車牌」
+BARRIER_AUTO_CLOSE_SEC = 8      # 車牌自動開柵欄後幾秒自動關;設 0 表示不自動關
 
 configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
@@ -216,9 +223,48 @@ def get_image_url():
 # LINE Push Function
 # =========================
 
+def _push_to_admin(messages):
+    """把 messages 推播給管理員。集中處理 ApiClient 與例外。"""
+    if admin_user_id is None:
+        return
+
+    try:
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.push_message(
+                PushMessageRequest(
+                    to=admin_user_id,
+                    messages=messages
+                )
+            )
+        print("Push message sent")
+
+    except Exception as e:
+        print("LINE push error:", e)
+
+
+def _auto_close_barrier():
+    """自動關柵欄(送 LOCK)。由 schedule_barrier_auto_close 在背景計時後呼叫。"""
+    result = send_command_to_stm32("LOCK")
+
+    if result == "OK_LOCKED":
+        add_history("柵欄自動關閉", "自動")
+    else:
+        add_history("柵欄自動關閉失敗", "自動", detail=result)
+        print("Auto close barrier failed, STM32 response:", result)
+
+
+def schedule_barrier_auto_close():
+    """開柵欄後排程 N 秒自動關。BARRIER_AUTO_CLOSE_SEC=0 則不自動關。"""
+    if BARRIER_AUTO_CLOSE_SEC and BARRIER_AUTO_CLOSE_SEC > 0:
+        threading.Timer(BARRIER_AUTO_CLOSE_SEC, _auto_close_barrier).start()
+
+
 def push_doorbell_photo():
     """
-    STM32 傳 DOORBELL 時，主動推播照片給管理員。
+    門鈴觸發流程:拍照 → 車牌辨識,再分兩種情況:
+      白名單車牌    → 自動開柵欄(UNLOCK),並推播「已開柵欄」+ 照片
+      陌生 / 沒認出 → 維持原本行為:推播照片給管理員人工判斷
     """
     global admin_user_id
 
@@ -231,39 +277,55 @@ def push_doorbell_photo():
 
     ok = capture_photo_once()
 
-    if ok:
-        add_history("門鈴拍照成功", "自動推播")
-        image_url = get_image_url()
-
-        messages = [
-            TextMessage(text="有人按門鈴，照片如下："),
-            ImageMessage(
-                original_content_url=image_url,
-                preview_image_url=image_url
-            )
-        ]
-    else:
+    if not ok:
         add_history("門鈴拍照失敗", "自動推播")
         print("Doorbell photo capture failed")
+        _push_to_admin([TextMessage(text="有人按門鈴，但拍照失敗")])
+        return
 
-        messages = [
-            TextMessage(text="有人按門鈴，但拍照失敗")
-        ]
+    add_history("門鈴拍照成功", "自動推播")
+    image_url = get_image_url()
 
-    try:
-        with ApiClient(configuration) as api_client:
-            line_bot_api = MessagingApi(api_client)
-            line_bot_api.push_message(
-                PushMessageRequest(
-                    to=admin_user_id,
-                    messages=messages
-                )
-            )
+    # ---- 車牌辨識 ----
+    plate, conf = plate_recognition.recognize_plate(IMAGE_PATH)
+    norm = plate_utils.normalize_plate(plate) if plate else ""
+    recognized = bool(norm) and conf >= PLATE_CONF_THRESHOLD
 
-        print("Doorbell push message sent")
+    print(f"Plate recognize: text={plate!r} norm={norm!r} conf={conf:.3f} ok={recognized}")
 
-    except Exception as e:
-        print("LINE push error:", e)
+    matched = plate_utils.get_authorized_plate(DB_PATH, norm) if recognized else None
+
+    # ---- 白名單車牌 → 自動開柵欄 ----
+    if matched:
+        name = matched["name"] or norm
+        result = send_command_to_stm32("UNLOCK")
+
+        if result == "OK_UNLOCKED":
+            add_history(f"{name} 車牌開柵欄", "車牌辨識", detail=norm)
+            schedule_barrier_auto_close()
+            text = f"車牌 {norm}（{name}）已自動開柵欄"
+        else:
+            add_history("車牌符合但開柵欄失敗", "車牌辨識", detail=f"{norm} / {result}")
+            print("Plate matched but barrier open failed, STM32 response:", result)
+            text = f"辨識到白名單車牌 {norm}（{name}），但開柵欄失敗，請檢查柵欄狀態"
+
+        _push_to_admin([
+            TextMessage(text=text),
+            ImageMessage(original_content_url=image_url, preview_image_url=image_url),
+        ])
+        return
+
+    # ---- 沒認出 or 不在白名單 → 原本門鈴行為 ----
+    if recognized:
+        add_history("車牌不在白名單", "車牌辨識", detail=norm)
+        head = f"有車輛按門鈴，車牌：{norm}（不在白名單）"
+    else:
+        head = "有人按門鈴"
+
+    _push_to_admin([
+        TextMessage(text=head + "，照片如下："),
+        ImageMessage(original_content_url=image_url, preview_image_url=image_url),
+    ])
 
 
 # =========================
@@ -434,43 +496,43 @@ def handle_message(event):
     # -------------------------
     # 開門
     # -------------------------
-    if user_text == "開門":
+    if user_text in ("開門", "開柵欄"):
         result = send_command_to_stm32("UNLOCK")
 
         if result == "OK_UNLOCKED":
             door_locked = False
-            add_history("開門成功", "LINE 指令")
+            add_history("開柵欄成功", "LINE 指令")
 
             messages = [
-                TextMessage(text="已開鎖")
+                TextMessage(text="柵欄已開")
             ]
         else:
-            add_history("開門失敗", "LINE 指令", detail=result)
-            print("Open door failed, STM32 response:", result)
+            add_history("開柵欄失敗", "LINE 指令", detail=result)
+            print("Open barrier failed, STM32 response:", result)
 
             messages = [
-                TextMessage(text="開鎖失敗，請確認門鎖狀態")
+                TextMessage(text="開柵欄失敗，請確認柵欄狀態")
             ]
 
     # -------------------------
     # 關門
     # -------------------------
-    elif user_text == "關門":
+    elif user_text in ("關門", "關柵欄"):
         result = send_command_to_stm32("LOCK")
 
         if result == "OK_LOCKED":
             door_locked = True
-            add_history("關門成功", "LINE 指令")
+            add_history("關柵欄成功", "LINE 指令")
 
             messages = [
-                TextMessage(text="已鎖定")
+                TextMessage(text="柵欄已關")
             ]
         else:
-            add_history("關門失敗", "LINE 指令", detail=result)
-            print("Lock door failed, STM32 response:", result)
+            add_history("關柵欄失敗", "LINE 指令", detail=result)
+            print("Close barrier failed, STM32 response:", result)
 
             messages = [
-                TextMessage(text="鎖定失敗，請確認門鎖狀態")
+                TextMessage(text="關柵欄失敗，請確認柵欄狀態")
             ]
 
     # -------------------------
@@ -484,7 +546,7 @@ def handle_message(event):
             add_history("狀態查詢：已鎖定", "LINE 指令")
 
             messages = [
-                TextMessage(text="目前狀態：已鎖定")
+                TextMessage(text="目前狀態：柵欄已關")
             ]
 
         elif result == "UNLOCKED":
@@ -492,7 +554,7 @@ def handle_message(event):
             add_history("狀態查詢：已開鎖", "LINE 指令")
 
             messages = [
-                TextMessage(text="目前狀態：已開鎖")
+                TextMessage(text="目前狀態：柵欄已開")
             ]
 
         else:
@@ -501,9 +563,9 @@ def handle_message(event):
 
             # LINE 上顯示簡化狀態，不顯示 debug 細節
             if door_locked:
-                status_text = "目前狀態：已鎖定"
+                status_text = "目前狀態：柵欄已關"
             else:
-                status_text = "目前狀態：已開鎖"
+                status_text = "目前狀態：柵欄已開"
 
             messages = [
                 TextMessage(text=status_text)
@@ -543,11 +605,58 @@ def handle_message(event):
             ]
 
     # -------------------------
+    # 車牌白名單管理
+    # -------------------------
+    elif user_text == "車牌清單":
+        rows = plate_utils.list_plates(DB_PATH)
+
+        if not rows:
+            messages = [TextMessage(text="目前白名單沒有車牌")]
+        else:
+            lines = ["車牌白名單："]
+            for plate, name, enabled, created_at in rows:
+                status = "啟用" if enabled else "停用"
+                lines.append(f"{plate}（{name or '-'}）{status}")
+            messages = [TextMessage(text="\n".join(lines))]
+
+    elif user_text.startswith("新增車牌"):
+        parts = user_text.split()
+
+        if len(parts) >= 2:
+            name = " ".join(parts[2:]) if len(parts) >= 3 else None
+            norm = plate_utils.add_plate(DB_PATH, parts[1], name)
+
+            if norm:
+                add_history(f"新增車牌 {norm}", "LINE 指令", detail=norm)
+                suffix = f"（{name}）" if name else ""
+                messages = [TextMessage(text=f"已新增車牌：{norm}{suffix}")]
+            else:
+                messages = [TextMessage(text="車牌格式錯誤，範例：新增車牌 ABC-1234 小明")]
+        else:
+            messages = [TextMessage(text="用法：新增車牌 ABC-1234 小明")]
+
+    elif user_text.startswith("刪除車牌") or user_text.startswith("移除車牌"):
+        parts = user_text.split()
+
+        if len(parts) >= 2:
+            norm = plate_utils.disable_plate(DB_PATH, parts[1])
+            add_history(f"刪除車牌 {norm}", "LINE 指令", detail=norm)
+            messages = [TextMessage(text=f"已移除車牌：{norm}")]
+        else:
+            messages = [TextMessage(text="用法：刪除車牌 ABC-1234")]
+
+    # -------------------------
     # 其他訊息
     # -------------------------
     else:
         messages = [
-            TextMessage(text="請使用下方選單：開門、關門、拍照、歷史紀錄")
+            TextMessage(text=(
+                "可用指令：\n"
+                "開柵欄、關柵欄、拍照、歷史紀錄\n"
+                "車牌清單\n"
+                "新增車牌 ABC-1234 小明\n"
+                "刪除車牌 ABC-1234"
+            ))
         ]
 
     # 避免 LINE Developers Verify 的 dummy reply token 造成錯誤
