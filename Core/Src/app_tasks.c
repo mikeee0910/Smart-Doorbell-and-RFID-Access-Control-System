@@ -70,13 +70,11 @@ void WiFiTask_Entry(void *argument)
                 uint8_t unlock = 0;
                 if (WiFi_HTTP_PostRFID(e.uid, &unlock) == 0 && unlock) {
                     printf("Server: UNLOCK\r\n");
-                    if (Servo_UnlockOnly() == 0 && !Servo_IsLocked()) {
-                        osMutexAcquire(doorMutexHandle, osWaitForever);
-                        door_locked = 0;
-                        osMutexRelease(doorMutexHandle);
-                    } else {
-                        printf("RFID: unlock FAILED (pos=%d)\r\n", Servo_IsLocked());
-                    }
+                    /* 開 → 等3秒 → 關(刷卡也自動關) */
+                    Servo_UnlockSequence();
+                    osMutexAcquire(doorMutexHandle, osWaitForever);
+                    door_locked = Servo_IsLocked();
+                    osMutexRelease(doorMutexHandle);
                 } else {
                     printf("Server: DENY\r\n");
                 }
@@ -99,15 +97,12 @@ void WiFiTask_Entry(void *argument)
         if (WiFi_HTTP_Poll(cmd, sizeof(cmd), wifiEventQueueHandle) == 0) {
             if (strcmp(cmd, "UNLOCK") == 0) {
                 printf("LINE: UNLOCK\r\n");
-                if (Servo_UnlockOnly() == 0 && !Servo_IsLocked()) {
-                    osMutexAcquire(doorMutexHandle, osWaitForever);
-                    door_locked = 0;
-                    osMutexRelease(doorMutexHandle);
-                    WiFi_HTTP_PostAck("OK_UNLOCKED");
-                } else {
-                    printf("LINE: unlock FAILED (pos=%d)\r\n", Servo_IsLocked());
-                    WiFi_HTTP_PostAck("FAIL_UNLOCK");
-                }
+                /* 開 → 等3秒 → 關(LINE 開門也自動關) */
+                Servo_UnlockSequence();
+                osMutexAcquire(doorMutexHandle, osWaitForever);
+                door_locked = Servo_IsLocked();
+                osMutexRelease(doorMutexHandle);
+                WiFi_HTTP_PostAck("OK_UNLOCKED");
             } else if (strcmp(cmd, "LOCK") == 0) {
                 printf("LINE: LOCK\r\n");
                 if (Servo_LockOnly() == 0 && Servo_IsLocked()) {

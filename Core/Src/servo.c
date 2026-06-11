@@ -14,7 +14,7 @@ extern TIM_HandleTypeDef htim2;
 #define SERVO_CHANNEL    TIM_CHANNEL_1
 
 #define SERVO_STOP_US    1500
-#define SERVO_UNLOCK_US  1750   /* open: speed = |pulse - 1500| = 200 */
+#define SERVO_UNLOCK_US  1760   /* open: speed = |pulse - 1500| = 200 */
 #define SERVO_LOCK_US    1230   /* close: speed = |pulse - 1500| = 200 (same as open) */
 
 /* Same rotation time for both open and close (continuous-rotation servo). */
@@ -51,7 +51,7 @@ void Servo_Stop(void)
 void Servo_UnlockSequence(void)
 {
     Servo_UnlockOnly();
-    osDelay(3000);
+    osDelay(4000);
     Servo_LockOnly();
 }
 
