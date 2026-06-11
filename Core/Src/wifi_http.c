@@ -7,6 +7,8 @@
 #define SOCKET_ID          0
 #define SEND_TIMEOUT       5000
 #define RECV_TIMEOUT       5000
+#define CONNECT_RETRIES    3
+#define SOCKET_REUSE_DELAY 200
 
 static uint8_t ServerIP[4] = {SERVER_IP_0, SERVER_IP_1, SERVER_IP_2, SERVER_IP_3};
 static uint8_t TxBuf[512];
@@ -51,10 +53,22 @@ static int http_post_ex(const char *path, const char *body, uint8_t *resp,
     int body_len = body ? (int)strlen(body) : 0;
     int len;
 
-    if (WIFI_OpenClientConnection(SOCKET_ID, WIFI_TCP_PROTOCOL, "TCP",
-                                   ServerIP, SERVER_PORT, 0) != WIFI_STATUS_OK) {
-        printf("HTTP: TCP connect failed\r\n");
-        return -1;
+    for (int attempt = 1; attempt <= CONNECT_RETRIES; attempt++) {
+        if (attempt > 1) {
+            osDelay(SOCKET_REUSE_DELAY);
+        }
+
+        if (WIFI_OpenClientConnection(SOCKET_ID, WIFI_TCP_PROTOCOL, "TCP",
+                                      ServerIP, SERVER_PORT, 0) == WIFI_STATUS_OK) {
+            break;
+        }
+
+        printf("HTTP: TCP connect failed (%d/%d)\r\n", attempt, CONNECT_RETRIES);
+        WIFI_CloseClientConnection(SOCKET_ID);
+
+        if (attempt == CONNECT_RETRIES) {
+            return -1;
+        }
     }
 
     len = snprintf((char *)TxBuf, sizeof(TxBuf),
@@ -110,6 +124,7 @@ static int http_post_ex(const char *path, const char *body, uint8_t *resp,
     RxBuf[received] = '\0';
 
     WIFI_CloseClientConnection(SOCKET_ID);
+    osDelay(SOCKET_REUSE_DELAY);
 
     if (resp && received > 0) {
         memcpy(resp, RxBuf, received + 1);
@@ -196,11 +211,16 @@ int WiFi_HTTP_PostAck(const char *result)
 {
     char path[96];
     uint8_t resp[128];
+    int ret;
 
     if (result == NULL) return -1;
 
     snprintf(path, sizeof(path), "/stm32/ack?result=%s&plain=1", result);
     printf("HTTP POST %s\r\n", path);
 
-    return http_post(path, NULL, resp, sizeof(resp));
+    ret = http_post(path, NULL, resp, sizeof(resp));
+    if (ret < 0) {
+        printf("HTTP ack failed (%d)\r\n", ret);
+    }
+    return ret;
 }
