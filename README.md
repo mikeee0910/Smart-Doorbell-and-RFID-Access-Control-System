@@ -143,11 +143,9 @@ push_doorbell_photo()  [app.py]
 
 1. STMicroelectronics — *B-L475E-IOT01A Discovery kit (STM32L475)*. <https://www.st.com/en/evaluation-tools/b-l475e-iot01a.html>
 2. FreeRTOS / CMSIS-RTOS v2. <https://www.freertos.org/>
-3. NXP — *MFRC522 (RC522) Contactless Reader IC Datasheet*.
-4. Inventek Systems — *ISM43362 (es-wifi) Wi-Fi module*.
-5. LINE — *Messaging API*. <https://developers.line.biz/en/docs/messaging-api/>
-6. fast-alpr — *ONNX 車牌偵測 + OCR 套件*. <https://pypi.org/project/fast-alpr/>
-7. ONNX Runtime. <https://onnxruntime.ai/>
-8. OpenCV. <https://opencv.org/>
-9. Flask. <https://flask.palletsprojects.com/>
-10. ngrok. <https://ngrok.com/>
+3. LINE — *Messaging API*. <https://developers.line.biz/en/docs/messaging-api/>
+4. fast-alpr — *ONNX 車牌偵測 + OCR 套件*. <https://pypi.org/project/fast-alpr/>
+5. ONNX Runtime. <https://onnxruntime.ai/>
+6. OpenCV. <https://opencv.org/>
+7. Flask. <https://flask.palletsprojects.com/>
+8. ngrok. <https://ngrok.com/>
