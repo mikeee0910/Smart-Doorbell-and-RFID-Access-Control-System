@@ -3,8 +3,11 @@
 基於 **STM32L475 IoT Discovery Kit** 與 **Raspberry Pi** 的智慧停車場門禁系統。提供 **RFID 刷卡**與**車牌辨識**兩種驗證方式,任一通過即自動開啟柵欄;並透過 **LINE Bot** 遠端控制柵欄、接收門口通知與查詢通行紀錄。
 
 > 🎥 **Demo 影片**:_（https://drive.google.com/file/d/1l3SzO02aXFCdFAMt_Jgk-UK2qNksE8ms/view）_
+
 > 📑 **簡報**:[ESLAB_Final.pdf](ESLAB_Final.pdf)
+
 > 📂 **原始碼**:STM32 韌體在 [`stm32`](../../tree/stm32) branch、Raspberry Pi 伺服器在 [`rpi`](../../tree/rpi) branch
+
 > 👥 **組員**:R13921015 潘恩瀚 · R13921071 孟繁宇
 
 ---
